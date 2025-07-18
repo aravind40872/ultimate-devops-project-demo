@@ -5,7 +5,7 @@ on:
     branches:
       - main
 
-# ----------------------- PRODUCT CATALOG JOBS (GO) ------------------------
+# -------------------- PRODUCT CATALOG SERVICE (GOLANG) --------------------
 jobs:
   build-product-catalog:
     runs-on: ubuntu-latest
@@ -92,7 +92,16 @@ jobs:
           git commit -m "[CI]: Update product catalog image tag"
           git push origin HEAD:main -f
 
-# ----------------------------- CART JOBS (.NET) --------------------------
+      - name: Set up KUBECONFIG
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Apply deployment to Kubernetes cluster
+        run: |
+          kubectl apply -f kubernetes/productcatalog/deploy.yaml
+
+# ------------------------- CART SERVICE (.NET 8) --------------------------
   build-cart:
     runs-on: ubuntu-latest
     steps:
@@ -102,21 +111,21 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'  # Update to your version if needed
+          dotnet-version: '8.0.x'
 
       - name: Restore dependencies
         run: |
-          cd src/cart
+          cd src/cart/src
           dotnet restore
 
       - name: Build
         run: |
-          cd src/cart
+          cd src/cart/src
           dotnet build --no-restore --configuration Release
 
       - name: Run unit tests
         run: |
-          cd src/cart
+          cd src/cart/src
           dotnet test --no-build --verbosity normal
 
   code-quality-cart:
@@ -135,7 +144,7 @@ jobs:
 
       - name: Run dotnet format (check code style & lint)
         run: |
-          cd src/cart
+          cd src/cart/src
           dotnet format --verify-no-changes --severity warn --verbosity diagnostic
 
   docker-cart:
@@ -183,4 +192,11 @@ jobs:
           git commit -m "[CI]: Update cart image tag"
           git push origin HEAD:main -f
 
-          
+      - name: Set up KUBECONFIG
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Apply deployment to Kubernetes cluster
+        run: |
+          kubectl apply -f kubernetes/cart/deploy.yaml
