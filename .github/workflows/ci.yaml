@@ -5,7 +5,7 @@ on:
     branches:
       - main
 
-# -------------------- PRODUCT CATALOG SERVICE (GOLANG) --------------------
+# -------- PRODUCT CATALOG SERVICE (Golang) --------
 jobs:
   build-product-catalog:
     runs-on: ubuntu-latest
@@ -92,16 +92,7 @@ jobs:
           git commit -m "[CI]: Update product catalog image tag"
           git push origin HEAD:main -f
 
-      - name: Set up KUBECONFIG
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
-
-      - name: Apply deployment to Kubernetes cluster
-        run: |
-          kubectl apply -f kubernetes/productcatalog/deploy.yaml
-
-# ------------------------- CART SERVICE (.NET 8) --------------------------
+# -------- CART SERVICE (.NET 8) --------
   build-cart:
     runs-on: ubuntu-latest
     steps:
@@ -191,12 +182,3 @@ jobs:
           git add kubernetes/cart/deploy.yaml
           git commit -m "[CI]: Update cart image tag"
           git push origin HEAD:main -f
-
-      - name: Set up KUBECONFIG
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
-
-      - name: Apply deployment to Kubernetes cluster
-        run: |
-          kubectl apply -f kubernetes/cart/deploy.yaml
