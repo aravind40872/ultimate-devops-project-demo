@@ -1,108 +1,202 @@
-# CI for Product Catalog Service
+name: Multi-Service CI
 
-name: product-catalog-ci
+on:
+  pull_request:
+    branches:
+      - main
 
-on: 
-    pull_request:
-        branches:
-        - main
-
+# -------------------- PRODUCT CATALOG SERVICE (GOLANG) --------------------
 jobs:
-    build:
-        runs-on: ubuntu-latest
+  build-product-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        steps:
-        - name: checkout code
-          uses: actions/checkout@v4
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.22
 
-        - name: Setup Go 1.22
-          uses: actions/setup-go@v2
-          with:
-            go-version: 1.22
-        
-        - name: Build
-          run: |
-            cd src/product-catalog
-            go mod download
-            go build -o product-catalog-service main.go
+      - name: Build
+        run: |
+          cd src/product-catalog
+          go mod download
+          go build -o product-catalog-service main.go
 
-        - name: unit tests
-          run: |
-            cd src/product-catalog
-            go test ./...
-    
-    code-quality:
-        runs-on: ubuntu-latest
+      - name: Unit tests
+        run: |
+          cd src/product-catalog
+          go test ./...
 
-        steps:
-        - name: checkout code
-          uses: actions/checkout@v4
-        
-        - name: Setup Go 1.22
-          uses: actions/setup-go@v2
-          with:
-           go-version: 1.22
-        
-        - name: Run golangci-lint
-          uses: golangci/golangci-lint-action@v6
-          with:
-            version: v1.55.2
-            run: golangci-lint run
-            working-directory: src/product-catalog
+  code-quality-product-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    docker:
-        runs-on: ubuntu-latest
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.22
 
-        needs: build
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.55.2
+          run: golangci-lint run
+          working-directory: src/product-catalog
 
-        steps:
-        - name: checkout code
-          uses: actions/checkout@v4
+  docker-product-catalog:
+    runs-on: ubuntu-latest
+    needs: build-product-catalog
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-        - name: Install Docker
-          uses: docker/setup-buildx-action@v1
-        
-        - name: Login to Docker
-          uses: docker/login-action@v3
-          with:
-            username: ${{ secrets.DOCKER_USERNAME }}
-            password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Install Docker
+        uses: docker/setup-buildx-action@v1
 
-        - name: Docker Push
-          uses: docker/build-push-action@v6
-          with:
-            context: src/product-catalog
-            file: src/product-catalog/Dockerfile
-            push: true
-            tags: ${{ secrets.DOCKER_USERNAME }}/product-catalog:${{github.run_id}}
+      - name: Login to Docker
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
 
-    
-    updatek8s:
-        runs-on: ubuntu-latest
+      - name: Docker Push
+        uses: docker/build-push-action@v6
+        with:
+          context: src/product-catalog
+          file: src/product-catalog/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/product-catalog:${{ github.run_id }}
 
-        needs: docker
+  updatek8s-product-catalog:
+    runs-on: ubuntu-latest
+    needs: docker-product-catalog
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.TOKEN }}
 
-        steps:
-        - name: checkout code
-          uses: actions/checkout@v4
-          with:
-            token: ${{ secrets.TOKEN }}
+      - name: Update tag in kubernetes deployment manifest
+        run: |
+          sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/product-catalog:${{ github.run_id }}|" kubernetes/productcatalog/deploy.yaml
 
-        - name: Update tag in kubernetes deployment manifest
-          run: | 
-               sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/product-catalog:${{github.run_id}}|" kubernetes/productcatalog/deploy.yaml
-        
-        - name: Commit and push changes
-          run: |
-            git config --global user.email "aravindsai448@gmail.com"
-            git config --global user.name "aravind40872"
-            git add kubernetes/productcatalog/deploy.yaml
-            git commit -m "[CI]: Update product catalog image tag"
-            git push origin HEAD:main -f
+      - name: Commit and push changes
+        run: |
+          git config --global user.email "aravindsai448@gmail.com"
+          git config --global user.name "aravind40872"
+          git add kubernetes/productcatalog/deploy.yaml
+          git commit -m "[CI]: Update product catalog image tag"
+          git push origin HEAD:main -f
 
-        
-        
-          
+      - name: Set up KUBECONFIG
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
 
+      - name: Apply deployment to Kubernetes cluster
+        run: |
+          kubectl apply -f kubernetes/productcatalog/deploy.yaml
 
-        
+# ------------------------- CART SERVICE (.NET 8) --------------------------
+  build-cart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: |
+          cd src/cart/src
+          dotnet restore
+
+      - name: Build
+        run: |
+          cd src/cart/src
+          dotnet build --no-restore --configuration Release
+
+      - name: Run unit tests
+        run: |
+          cd src/cart/src
+          dotnet test --no-build --verbosity normal
+
+  code-quality-cart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install dotnet-format tool
+        run: dotnet tool install -g dotnet-format
+
+      - name: Run dotnet format (check code style & lint)
+        run: |
+          cd src/cart/src
+          dotnet format --verify-no-changes --severity warn --verbosity diagnostic
+
+  docker-cart:
+    runs-on: ubuntu-latest
+    needs: build-cart
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Docker
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to Docker
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Docker Push
+        uses: docker/build-push-action@v6
+        with:
+          context: src/cart/src
+          file: src/cart/src/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/cart:${{ github.run_id }}
+
+  updatek8s-cart:
+    runs-on: ubuntu-latest
+    needs: docker-cart
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.TOKEN }}
+
+      - name: Update tag in kubernetes deployment manifest
+        run: |
+          sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/cart:${{ github.run_id }}|" kubernetes/cart/deploy.yaml
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.email "aravindsai448@gmail.com"
+          git config --global user.name "aravind40872"
+          git add kubernetes/cart/deploy.yaml
+          git commit -m "[CI]: Update cart image tag"
+          git push origin HEAD:main -f
+
+      - name: Set up KUBECONFIG
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+
+      - name: Apply deployment to Kubernetes cluster
+        run: |
+          kubectl apply -f kubernetes/cart/deploy.yaml
